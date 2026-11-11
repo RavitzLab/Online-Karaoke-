@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+  <meta name="theme-color" content="#16121f" />
+  <title>Connect — караоке с друзьями</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="/css/style.css" />
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <!-- Стартовый экран -->
+  <section id="screen-home" class="screen">
+    <div class="home">
+      <div class="logo">🎤</div>
+      <h1>Connect</h1>
+      <p class="lead" id="home-lead">Караоке-комната для друзей. Создайте комнату, отправьте ссылку в чат и пойте по очереди — где бы вы ни были.</p>
+      <label class="field" id="name-field" hidden>
+        <span>Как вас зовут?</span>
+        <input id="name-input" maxlength="40" autocomplete="nickname" placeholder="Имя" />
+      </label>
+      <button class="btn primary big" id="btn-start">Создать комнату</button>
+      <p class="hint" id="home-hint">Попросим доступ к микрофону, чтобы друзья вас слышали. Камеру можно включить позже.</p>
+      <p class="error" id="home-error" hidden></p>
+    </div>
+  </section>
+
+  <!-- Ожидание одобрения -->
+  <section id="screen-wait" class="screen" hidden>
+    <div class="home">
+      <div class="logo pulse">🚪</div>
+      <h2>Стучимся в комнату…</h2>
+      <p class="lead">Хозяин увидит запрос и впустит вас. Можно не закрывать приложение.</p>
+      <button class="btn ghost" id="btn-cancel-wait">Отменить</button>
+    </div>
+  </section>
+
+  <!-- Комната -->
+  <section id="screen-room" class="screen room" hidden>
+    <header class="topbar">
+      <div class="room-title">
+        <b id="room-code"></b>
+        <span id="room-count" class="muted"></span>
+      </div>
+      <button class="btn small primary" id="btn-invite">Позвать друзей</button>
+    </header>
+
+    <div id="knocks"></div>
+
+    <div class="stage" id="stage">
+      <div class="yt" id="yt" hidden></div>
+      <video id="stage-video" class="stage-video" playsinline autoplay muted hidden></video>
+      <div class="stage-empty" id="stage-empty"></div>
+      <div class="stage-info" id="stage-info" hidden>
+        <div class="now-title" id="now-title"></div>
+        <div class="now-singer" id="now-singer"></div>
+        <div class="progress" id="progress" hidden><i></i></div>
+      </div>
+      <div class="countdown" id="countdown" hidden></div>
+      <button class="btn primary tap-sound" id="btn-tap-sound" hidden>▶ Включить музыку</button>
+      <div class="reactions-layer" id="reactions-layer"></div>
+    </div>
+
+    <div class="turn-cta" id="turn-cta" hidden></div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Очередь</h3>
+        <button class="btn small" id="btn-add">+ Песня</button>
+      </div>
+      <ol class="queue" id="queue"></ol>
+      <details class="history" id="history-box" hidden>
+        <summary>Уже спели</summary>
+        <ol id="history"></ol>
+      </details>
+    </div>
+
+    <nav class="dock">
+      <button class="dock-btn" id="btn-mic" title="Микрофон"><span class="ico">🎙️</span><span class="lbl">Микрофон</span></button>
+      <button class="dock-btn" id="btn-cam" title="Камера"><span class="ico">📷</span><span class="lbl">Камера</span></button>
+      <div class="emoji-bar" id="emoji-bar">
+        <button data-emoji="👏">👏</button><button data-emoji="🔥">🔥</button><button data-emoji="😍">😍</button><button data-emoji="😂">😂</button><button data-emoji="💜">💜</button>
+      </div>
+      <button class="dock-btn" id="btn-settings" title="Звук"><span class="ico">🎚️</span><span class="lbl">Звук</span></button>
+    </nav>
+  </section>
+
+  <!-- Добавить песню -->
+  <div class="sheet" id="sheet-add" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>Добавить песню</h3><button class="x" data-close>✕</button></div>
+      <div class="tabs">
+        <button class="tab active" data-tab="yt">YouTube</button>
+        <button class="tab" data-tab="file">Своя минусовка</button>
+        <button class="tab" data-tab="fav">★ Любимые</button>
+      </div>
+      <div class="tab-body" data-body="yt">
+        <label class="field"><span>Ссылка на караоке-видео</span>
+          <input id="yt-url" inputmode="url" placeholder="https://youtu.be/…" />
+        </label>
+        <div class="row">
+          <button class="btn ghost" id="btn-yt-search">Найти на YouTube ↗</button>
+          <button class="btn primary" id="btn-yt-add">В очередь</button>
+        </div>
+        <p class="hint">Совет: ищите «название песни караоке». Некоторые ролики запрещают показ вне YouTube — тогда выберите другой.</p>
+      </div>
+      <div class="tab-body" data-body="file" hidden>
+        <label class="field"><span>Файл минусовки (mp3, m4a, wav)</span>
+          <input type="file" id="file-input" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" />
+        </label>
+        <label class="field"><span>Название</span>
+          <input id="file-title" maxlength="140" placeholder="Исполнитель — песня" />
+        </label>
+        <button class="btn primary" id="btn-file-add">В очередь</button>
+        <p class="hint">Файл остаётся на вашем телефоне. Когда подойдёт очередь, друзья услышат минусовку и ваш голос одним миксом.</p>
+      </div>
+      <div class="tab-body" data-body="fav" hidden>
+        <ul class="fav-list" id="fav-list"></ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- Подготовка к песне -->
+  <div class="sheet" id="sheet-sing" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>Ваша очередь!</h3><button class="x" data-close>✕</button></div>
+      <p class="sing-title" id="sing-title"></p>
+      <label class="switch"><input type="checkbox" id="sing-headphones" checked /><span>Я в наушниках <small>— звук чище; без наушников включим эхоподавление</small></span></label>
+      <label class="switch"><input type="checkbox" id="sing-cam" /><span>Включить камеру</span></label>
+      <label class="field"><span>Реверберация: <b id="sing-reverb-val"></b></span>
+        <input type="range" id="sing-reverb" min="0" max="1" step="0.05" />
+      </label>
+      <div id="sing-file-box" hidden>
+        <p class="hint">Файл этой минусовки не найден на устройстве — выберите его ещё раз:</p>
+        <input type="file" id="sing-file" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg" />
+      </div>
+      <button class="btn primary big" id="btn-sing-go">Поехали 🎤</button>
+    </div>
+  </div>
+
+  <!-- Настройки звука -->
+  <div class="sheet" id="sheet-settings" hidden>
+    <div class="sheet-card">
+      <div class="sheet-head"><h3>Звук</h3><button class="x" data-close>✕</button></div>
+      <label class="field"><span>Реверберация голоса: <b id="set-reverb-val"></b></span>
+        <input type="range" id="set-reverb" min="0" max="1" step="0.05" />
+      </label>
+      <label class="field"><span>Громкость музыки</span>
+        <input type="range" id="set-music" min="0" max="1" step="0.05" />
+      </label>
+      <label class="switch"><input type="checkbox" id="set-monitor" /><span>Слышать себя в наушниках <small>(только когда поёте)</small></span></label>
+      <label class="field"><span>Сдвиг музыки YouTube у меня: <b id="set-shift-val"></b></span>
+        <input type="range" id="set-shift" min="-1" max="1" step="0.05" />
+        <small class="muted">Если голос отстаёт от музыки — сдвиньте влево.</small>
+      </label>
+      <div id="host-tools" hidden>
+        <h4>Хозяин комнаты</h4>
+        <button class="btn ghost" id="btn-end-song">Завершить текущую песню</button>
+      </div>
+      <button class="btn ghost danger" id="btn-leave">Выйти из комнаты</button>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script type="module" src="/js/app.js"></script>
+</body>
+</html>
