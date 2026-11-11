@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: connect-karaoke
+    runtime: node
+    plan: free
+    region: frankfurt
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: APP_SHORT_NAME
+        sync: false
+      - key: ICE_SERVERS
+        sync: false

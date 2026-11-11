@@ -9,8 +9,11 @@ import { WebSocketServer } from 'ws';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
 const BOT_TOKEN = process.env.BOT_TOKEN || '';
-const BOT_USERNAME = process.env.BOT_USERNAME || '';
+let BOT_USERNAME = process.env.BOT_USERNAME || '';
 const APP_SHORT_NAME = process.env.APP_SHORT_NAME || '';
+// Публичный HTTPS-адрес приложения. На Render подставляется автоматически.
+const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || '').replace(/\/$/, '');
+const WEBHOOK_SECRET = BOT_TOKEN ? crypto.createHash('sha256').update('wh:' + BOT_TOKEN).digest('hex').slice(0, 48) : '';
 const ALLOW_GUESTS = process.env.ALLOW_GUESTS !== '0';
 const MAX_MEMBERS = Number(process.env.MAX_MEMBERS || 6);
 const MAX_PENDING = 10;
@@ -134,6 +137,59 @@ function enterRoom(member, room) {
   room.members.set(member.peerId, member);
 }
 
+
+// ---------- Telegram-бот ----------
+async function tgApi(method, body) {
+  const r = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/${method}`, {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body || {}),
+    signal: AbortSignal.timeout(10000),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!j.ok) throw new Error(`${method}: ${j.description || r.status}`);
+  return j.result;
+}
+
+const ROOM_RE = /^[A-Z0-9]{4,10}$/;
+function appLinkFor(roomId) {
+  if (BOT_USERNAME && APP_SHORT_NAME) return `https://t.me/${BOT_USERNAME}/${APP_SHORT_NAME}` + (roomId ? `?startapp=${roomId}` : '');
+  return null;
+}
+
+async function handleUpdate(update) {
+  const msg = update.message;
+  if (!msg?.text || !msg.text.startsWith('/start')) return;
+  const payload = msg.text.split(/\s+/)[1]?.toUpperCase() || '';
+  const roomId = ROOM_RE.test(payload) ? payload : '';
+  const isPrivate = msg.chat.type === 'private';
+  const webUrl = PUBLIC_URL + (roomId ? `/?room=${roomId}` : '/');
+  // В группах кнопки web_app запрещены — там даём обычную ссылку на Mini App.
+  const button = isPrivate
+    ? { text: roomId ? '🎤 Войти в комнату' : '🎤 Создать комнату', web_app: { url: webUrl } }
+    : { text: '🎤 Открыть Connect', url: appLinkFor(roomId) || `https://t.me/${BOT_USERNAME}?start=${roomId}` };
+  const text = roomId
+    ? `Вас зовут на караоке в комнату ${roomId}! Нажмите кнопку — и хозяин впустит вас.`
+    : 'Connect — караоке с друзьями прямо в Telegram.\n\nСоздайте комнату, нажмите «Позвать друзей» и отправьте ссылку в чат. Каждый добавляет песню в очередь — и поём по очереди 🎶';
+  await tgApi('sendMessage', { chat_id: msg.chat.id, text, reply_markup: { inline_keyboard: [[button]] } });
+}
+
+async function setupBot() {
+  if (!BOT_TOKEN) return;
+  try {
+    const me = await tgApi('getMe');
+    if (!BOT_USERNAME) BOT_USERNAME = me.username;
+    console.log(`Бот @${me.username} подключён`);
+    if (!PUBLIC_URL) { console.log('PUBLIC_URL не задан — webhook и кнопка меню не настроены'); return; }
+    if (!PUBLIC_URL.startsWith('https://')) { console.log('PUBLIC_URL должен начинаться с https:// — Telegram не откроет http'); return; }
+    await tgApi('setWebhook', { url: `${PUBLIC_URL}/tg/webhook`, secret_token: WEBHOOK_SECRET, allowed_updates: ['message'], drop_pending_updates: true });
+    await tgApi('setChatMenuButton', { menu_button: { type: 'web_app', text: 'Караоке', web_app: { url: PUBLIC_URL + '/' } } });
+    await tgApi('setMyCommands', { commands: [{ command: 'start', description: 'Открыть караоке-комнату' }] });
+    await tgApi('setMyDescription', { description: 'Караоке-комната для друзей: видео, общая очередь песен и живые реакции. Создайте комнату и отправьте ссылку в чат.' }).catch(() => {});
+    console.log(`Webhook, кнопка меню и команды настроены на ${PUBLIC_URL}`);
+  } catch (e) {
+    console.error('Не удалось настроить бота:', e.message);
+  }
+}
+
 // ---------- HTTP ----------
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -167,6 +223,16 @@ const server = http.createServer(async (req, res) => {
     return res.end(JSON.stringify({ title }));
   }
   if (url.pathname === '/healthz') { res.writeHead(200); return res.end('ok'); }
+  if (url.pathname === '/tg/webhook' && req.method === 'POST') {
+    if (!BOT_TOKEN || req.headers['x-telegram-bot-api-secret-token'] !== WEBHOOK_SECRET) { res.writeHead(403); return res.end(); }
+    let body = '';
+    req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
+    req.on('end', () => {
+      res.writeHead(200); res.end('ok');
+      try { handleUpdate(JSON.parse(body)).catch((e) => console.error('bot:', e.message)); } catch {}
+    });
+    return;
+  }
 
   let p = decodeURIComponent(url.pathname);
   if (p === '/' || !path.extname(p)) p = '/index.html';
@@ -385,4 +451,5 @@ setInterval(() => {
 server.listen(PORT, () => {
   console.log(`Connect запущен: http://localhost:${PORT}`);
   if (!BOT_TOKEN) console.log('BOT_TOKEN не задан — вход через Telegram не проверяется, все заходят как гости.');
+  setupBot();
 });

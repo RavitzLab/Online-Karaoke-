@@ -605,9 +605,9 @@ $('#btn-leave').onclick = () => { closeSheets(); leave(); };
 // ---------- Приглашение ----------
 function inviteLink() {
   const { botUsername, appShortName } = S.config;
-  return botUsername && appShortName
-    ? `https://t.me/${botUsername}/${appShortName}?startapp=${S.room.id}`
-    : `${location.origin}/?room=${S.room.id}`;
+  if (botUsername && appShortName) return `https://t.me/${botUsername}/${appShortName}?startapp=${S.room.id}`;
+  if (botUsername) return `https://t.me/${botUsername}?start=${S.room.id}`;
+  return `${location.origin}/?room=${S.room.id}`;
 }
 $('#btn-invite').onclick = async () => {
   const link = inviteLink();
